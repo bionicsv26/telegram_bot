@@ -1,7 +1,11 @@
-import config
+import os
+from dotenv import load_dotenv
 import telebot
 
-bot = telebot.TeleBot(config.token_telegram)
+load_dotenv()
+
+bot = telebot.TeleBot(os.getenv('TOKEN_TELEGRAM'))
+print('Bot is starting...')
 
 
 @bot.message_handler(commands=['start'])
