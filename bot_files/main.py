@@ -1,18 +1,18 @@
-import os
 from typing import Dict
-from dotenv import load_dotenv
-import telebot
-from telebot.types import ReplyKeyboardMarkup, KeyboardButton, Message, CallbackQuery
-from loguru import logger
-import botrequests.bot_func as bf
+import os
 
+from dotenv import load_dotenv
+from loguru import logger
+from telebot.types import ReplyKeyboardMarkup, KeyboardButton, Message, CallbackQuery
 from telegram_bot_calendar import DetailedTelegramCalendar
+import telebot
+
+import botrequests.bot_func as bf
 
 
 load_dotenv()
 
 bot = telebot.TeleBot(os.getenv('TOKEN_TELEGRAM'))
-print('Bot is starting...')
 
 service_messages: Dict = {'/lowprice': 'PRICE',
                           '/highprice': 'PRICE_HIGHEST_FIRST',

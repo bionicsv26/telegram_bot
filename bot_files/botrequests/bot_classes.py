@@ -1,11 +1,14 @@
 from typing import List, Dict
+import json
 import os
 import re
-import json
+
 from dotenv import load_dotenv
-import requests
-from telebot.types import InlineKeyboardMarkup, InlineKeyboardButton
+from loguru import logger
 from peewee import *
+import requests
+
+from telebot.types import InlineKeyboardMarkup, InlineKeyboardButton
 
 
 load_dotenv()
@@ -170,7 +173,7 @@ class Request:
                       if elem.get('type') == 'CITY' and self.this_query["query"].lower() in elem.get('name').lower()]
         except IndexError:
             cities = []
-            print('Получен неправильный ответ от сайта при запросе города.')
+            logger.info('Получен неправильный ответ от сайта при запросе города.')
         return cities
 
     def get_hotels(self) -> List[Tuple]:
@@ -190,8 +193,7 @@ class Request:
                       for hotel in variants_hotels['data']['body']['searchResults']['results']]
 
         except IndexError as err:
-            print('Получен неправильный ответ от сайта при запросе отелей.')
-            print(err)
+            logger.info(f'Получен неправильный ответ от сайта при запросе отелей: {err}')
         return hotels
 
     def get_hotel_info(self) -> str:
@@ -264,6 +266,5 @@ class Request:
                     pics.append(photo.get("baseUrl").replace('{size}', 'z'))
             return pics
         except IndexError:
-            print('Произошла ошибка при получении изображений отеля с id {}'.format(self.this_query['id']))
-            print(pics)
+            logger.info('Произошла ошибка при получении изображений отеля с id {}'.format(self.this_query['id']))
             return pics

@@ -1,10 +1,12 @@
+from datetime import date
 from typing import Dict, List, Tuple, Union
 import re
-from datetime import date
-from telebot.types import InlineKeyboardMarkup, Message
-from .bot_classes import InlineKeyboard, Request, Session, HistoryQuery, db
+
 from loguru import logger
 from telegram_bot_calendar import DetailedTelegramCalendar
+
+from telebot.types import InlineKeyboardMarkup, Message
+from bot_classes import InlineKeyboard, Request, Session, HistoryQuery, db
 
 
 def search_city(message: Message, bot) -> None:
