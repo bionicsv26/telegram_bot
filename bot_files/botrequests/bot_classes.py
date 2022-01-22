@@ -1,15 +1,13 @@
-from typing import List, Dict
 import json
 import os
 import re
+from typing import List, Dict
 
+import requests
 from dotenv import load_dotenv
 from loguru import logger
 from peewee import *
-import requests
-
 from telebot.types import InlineKeyboardMarkup, InlineKeyboardButton
-
 
 load_dotenv()
 

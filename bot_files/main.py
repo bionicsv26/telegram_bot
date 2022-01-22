@@ -1,14 +1,13 @@
-from typing import Dict
 import os
+from typing import Dict
 
+import telebot
 from dotenv import load_dotenv
 from loguru import logger
 from telebot.types import ReplyKeyboardMarkup, KeyboardButton, Message, CallbackQuery
 from telegram_bot_calendar import DetailedTelegramCalendar
-import telebot
 
 import botrequests.bot_func as bf
-
 
 load_dotenv()
 
