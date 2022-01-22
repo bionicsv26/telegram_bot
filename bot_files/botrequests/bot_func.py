@@ -95,19 +95,6 @@ def check_dates(message: Message, bot):
     bot.send_message(message.chat.id, 'Введите дату ' + text_message, reply_markup=calendar)
 
 
-# def validation_dates(message: Message, bot) -> bool:
-#     """Проверка вводимых дат на корректность"""
-#     check_in: date = get_value_from_save(message, 'check_in')
-#     check_out: date = get_value_from_save(message, 'check_out')
-#     if check_out.year >= check_in.year:
-#         if check_out.month >= check_in.month:
-#             if check_out.day > check_in.day:
-#                 logger.info(f'message {message.from_user.id}: Даты введены корректно')
-#                 return True
-#     logger.info(f'message {message.from_user.id}: Даты введены некорректно')
-#     return False
-
-
 def validation_dates(message: Message, bot) -> bool:
     """Проверка вводимых дат на корректность"""
     check_in: date = get_value_from_save(message, 'check_in')
@@ -253,13 +240,11 @@ def add_new_save(message: Message, sort_order: str) -> None:
     если она еще не создана. Создает начальную запись текущего запроса пользователя
     """
     with db:
-        first_save = Session.select().where(Session.id == 1)  # 1 вариант
+        first_save = Session.select().where(Session.id == 1)
         if not first_save.exists():
-        # first_save = Session.get_or_none(id=1)  # 2 вариант : какой лучше подходит?
-        # if first_save is None:
             first_save = Session(chat_id='chat.id', sort_order='sortOrder', query='query', city_id='destinationId',
                                  locale='locale', currency='currency', number_hotels='pageSize',
-                                 number_persons='adults1',page_number='pageNumber', check_in='checkIn',
+                                 number_persons='adults1', page_number='pageNumber', check_in='checkIn',
                                  check_out='checkOut', hotel_id='id', hotel_pics='pics', price_start='price_start',
                                  price_stop='price_stop', distance='distance')
             first_save.save()
