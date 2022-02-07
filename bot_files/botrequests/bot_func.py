@@ -1,12 +1,19 @@
+import os
 import re
-from datetime import date
+import shutil
+from datetime import date, datetime
 from typing import Dict, List, Tuple, Union
 
+import requests
 from loguru import logger
 from telebot.types import InlineKeyboardMarkup, Message
 from telegram_bot_calendar import DetailedTelegramCalendar
 
 from Bot_files.botrequests.bot_classes import InlineKeyboard, Request, Session, HistoryQuery, db
+
+way_sorting: Dict = {'PRICE': 'lowprice',
+                     'PRICE_HIGHEST_FIRST': 'highprice',
+                     'DISTANCE_FROM_LANDMARK': 'bestdeal'}
 
 
 def search_city(message: Message, bot) -> None:
@@ -121,6 +128,14 @@ def search_hotels(message: Message, bot):
     bot.send_message(message.chat.id, 'Идет поиск отелей...:')
     request_queue: Dict = collect_request(message, 'city_id', 'page_number', 'number_hotels', 'check_in', 'check_out',
                                           'number_persons', 'sort_order', 'locale', 'currency')
+    print(request_queue)
+    if request_queue['sortOrder'] == 'DISTANCE_FROM_LANDMARK':
+        request_queue_addition: Dict = collect_request(message, 'price_start', 'price_stop', 'distance')
+        print(request_queue_addition)
+        request_queue.update(request_queue_addition)
+        print(request_queue)
+
+    number_hotels_for_user: int = int(get_value_from_save(message, 'number_hotels'))
     hotels: List = object_search(search_hotels.__name__, request_queue, message)
 
     if len(hotels) == 0:
@@ -131,7 +146,10 @@ def search_hotels(message: Message, bot):
                          ' воспользуйтесь, пожалуйста, командой /start')
     else:
         logger.info(f'message {message.from_user.id}: Обнаружено {len(hotels)} вариантов отелей')
-        text_message = 'Найдено несколько отелей. Выберите подходящий:'
+        if len(hotels) < number_hotels_for_user:
+            text_message = f'По Вашему запросу найдено всего {len(hotels)} вариантов отелей'
+        else:
+            text_message = f'Ваши {len(hotels)} вариантов отелей. Выберите подходящий:'
         create_keyboard(hotels, 1, text_message, message, bot)
 
 
@@ -170,6 +188,8 @@ def search_hotel_info(message: Message, bot):
         bot.send_message(message.chat.id, 'Информация об отеле отсутствует в базе')
     else:
         logger.info(f'message {message.from_user.id}: Информация об отеле отправлена пользователю')
+        hotel_name: str = save_history_txt(message, hotel_info)
+        save_history_db(message, hotel_name)
         bot.send_message(message.chat.id, hotel_info)
     if get_value_from_save(message, 'hotel_pics').isdigit():
         search_hotel_photos(message, bot)
@@ -207,6 +227,93 @@ def number_photos(message: Message, bot) -> None:
         search_hotel_info(message, bot)
 
 
+def set_price_range(message: Message, bot) -> None:
+    """
+    Проверяет введенные пользователем минимальную и максимальную цены, вызывает следующую функцию set_distance
+     (если проверка успешная) или производится повторный запрос (если данные не прошли проверку)
+    :param bot: бот
+    :param message: Полученное в чате сообщение
+    """
+    cur_price: str = message.text
+    if get_value_from_save(message, 'price_start') == '':
+        text = 'минимальная'
+    else:
+        text = 'максимальная'
+    if not cur_price.isdigit() or int(cur_price) < 0:
+        logger.info(f'message {message.from_user.id}: Введенная {text} цена {cur_price} не корректна')
+        msg = bot.send_message(message.chat.id,
+                               f'Введенная {text} цена не корректна\n'
+                               f'Цена должна быть положительным и целым числом\n'
+                               f'Попробуйте ввести цену еще раз:')
+        bot.register_next_step_handler(msg, set_price_range, bot)
+
+    else:
+        if get_value_from_save(message, 'price_start') == '':
+            update_save(message, 'price_start', cur_price)
+            if get_value_from_save(message, 'locale') == 'ru_RU':
+                price = 'в рублях'
+            else:
+                price = 'в долларах'
+            msg = bot.send_message(message.chat.id,
+                                   f'Введите максимальную цену за сутки проживания в отеле, {price}')
+            bot.register_next_step_handler(msg, set_price_range, bot)
+        else:
+            if cur_price == '0':
+                logger.info(f'message {message.from_user.id}: Введенная {text} цена не может быть равна 0')
+                msg = bot.send_message(message.chat.id,
+                                       f'Введенная {text} цена не может быть равна 0\nПопробуйте ввести цену еще раз:')
+                bot.register_next_step_handler(msg, set_price_range, bot)
+            else:
+                price_start = int(get_value_from_save(message, 'price_start'))
+                price_stop = int(cur_price)
+                if price_start >= price_stop:
+                    logger.info(f'message {message.from_user.id}: максимальная цена должна быть больше минимальной')
+                    update_save(message, 'price_start', '')
+                    msg = bot.send_message(message.chat.id,
+                                           'Максимальная цена должна быть больше минимальной\n'
+                                           'Попробуйте ввести цены еще раз:')
+                    bot.register_next_step_handler(msg, set_price_range, bot)
+                else:
+                    update_save(message, 'price_stop', price_stop)
+                    logger.info(f'message {message.from_user.id}: Цены диапазона введены корректно')
+                    if get_value_from_save(message, 'locale') == 'ru_RU':
+                        radius = 'км'
+                    else:
+                        radius = 'миль'
+                    msg = bot.send_message(message.chat.id,
+                                           f'Введите максимальное расстояние от центра города для отбора отелей\n'
+                                           f'Рекомендация (для получения оперативного ответа):'
+                                           f'расстояние вводить не более 10 {radius}')
+                    bot.register_next_step_handler(msg, set_distance, bot)
+
+
+def set_distance(message: Message, bot) -> None:
+    """
+    Проверяет введенную пользователем удаленность от центра города и вызывает следующую функцию search_hotel_info
+    (если проверка успешная) или производится повторный запрос (если данные не прошли проверку)
+    :param bot: бот
+    :param message: Полученное в чате сообщение
+    """
+    distance: str = message.text
+    distance = re.sub(',', '.', distance)
+
+    def is_float(number: str):
+        try:
+            float(number)
+            return True
+        except ValueError:
+            return False
+    if not is_float(distance) or float(distance) <= 0:
+        logger.info(f'message {message.from_user.id}: Введенное расстояние не корректное')
+        msg = bot.send_message(message.chat.id,
+                               'Введенное расстояние не корректное\nПопробуйте ввести его еще раз:')
+        bot.register_next_step_handler(msg, set_distance, bot)
+    else:
+        logger.info(f'message {message.from_user.id}: Введенное расстояние корректное')
+        update_save(message, 'distance', float(distance))
+        search_hotels(message, bot)
+
+
 def search_hotel_photos(message: Message, bot) -> None:
     """
     Формирует запрос для поиска фотографий отеля и отправляет их затем пользователю.
@@ -221,10 +328,11 @@ def search_hotel_photos(message: Message, bot) -> None:
         pics: int = int(photo_from_db)
     else:
         pics: int = len(photo_album)
-        bot.send_message(message.chat.id, f'На сайте найдено всего {photo_album} фотографий')
+        bot.send_message(message.chat.id, f'На сайте найдено всего {len(photo_album)} фотографий')
+    save_history_photo(message, photo_album[:pics])
     for pic in photo_album[:pics]:
         bot.send_photo(message.chat.id, pic)
-    logger.info(f'message {message.from_user.id}: {pics} фотографий отправлено пользователю')
+    logger.info(f'message {message.from_user.id}: {len(photo_album[:pics])} фотографий отправлено пользователю')
 
 
 def create_database() -> None:
@@ -234,7 +342,7 @@ def create_database() -> None:
         logger.info(f'message: таблицы Session и HistoryQuery созданы или существуют')
 
 
-def add_new_save(message: Message, sort_order: str) -> None:
+def add_new_save_session(message: Message, sort_order: str) -> None:
     """
     Создает первую строку в таблице Session со значениями, соответствующими ключам в запросах к API hotels.com,
     если она еще не создана. Создает начальную запись текущего запроса пользователя
@@ -245,19 +353,21 @@ def add_new_save(message: Message, sort_order: str) -> None:
             first_save = Session(chat_id='chat.id', sort_order='sortOrder', query='query', city_id='destinationId',
                                  locale='locale', currency='currency', number_hotels='pageSize',
                                  number_persons='adults1', page_number='pageNumber', check_in='checkIn',
-                                 check_out='checkOut', hotel_id='id', hotel_pics='pics', price_start='price_start',
-                                 price_stop='price_stop', distance='distance')
+                                 check_out='checkOut', hotel_id='id', hotel_pics='pics', price_start='priceMin',
+                                 price_stop='priceMax', distance='distance', datetime_query='datetime_query',
+                                 root_user_query='root_user_query')
             first_save.save()
-            logger.info(f'message {message.from_user.id}: Первая запись создана')
+            logger.info(f'message {message.from_user.id}: Первая запись таблицы sessions создана')
 
         session = Session(chat_id=message.chat.id, sort_order=sort_order, query='', city_id='', locale='',
                           currency='', number_hotels='', number_persons='', check_in='', check_out='',
-                          hotel_id='', hotel_pics='', price_start='', price_stop='', distance='', page_number='1')
+                          hotel_id='', hotel_pics='', price_start='', price_stop='', distance='', page_number='1',
+                          datetime_query=datetime.now().strftime("%d-%m-%y %H-%M-%S"), root_user_query='')
         session.save()
-        logger.info(f'message {message.from_user.id}: Начальная запись текущего запроса создана')
+        logger.info(f'message {message.from_user.id}: Начальная запись текущего  запроса для session создана')
 
 
-def update_save(message: Message, update_key: str, update_value: Union[str, date]) -> None:
+def update_save(message: Message, update_key: str, update_value: Union[str, date, float]) -> None:
     """
     Обновляет данные текущего запроса пользователя
     :param update_key: Название колонки в таблице Session
@@ -271,7 +381,7 @@ def update_save(message: Message, update_key: str, update_value: Union[str, date
         logger.info(f'message {message.from_user.id}: Обновление в базе: {update_key} = {update_value}')
 
 
-def get_value_from_save(message: Message, column_from_save: str) -> Union[str, date]:
+def get_value_from_save(message: Message, column_from_save: str) -> Union[str, date, float]:
     """
     Получает данные из соответствующей колонки текущего запроса пользователя
     :param column_from_save: Название колонки в таблице Session
@@ -280,7 +390,7 @@ def get_value_from_save(message: Message, column_from_save: str) -> Union[str, d
     """
     with db:
         cur_query = Session.select().where(Session.chat_id == message.chat.id).limit(1).order_by(Session.id.desc())[0]
-        value: Union[str, date] = eval(f"cur_query.{column_from_save}")
+        value: Union[str, date, float] = eval(f"cur_query.{column_from_save}")
         logger.info(f'message {message.from_user.id}: Запрос значения из базы: {column_from_save} = {value}')
         return value
 
@@ -312,3 +422,137 @@ def collect_request(message: Message, *args: Union[str, date, float, int]) -> Di
         value = get_value_from_save(message, arg)
         collected_request[key] = value
     return collected_request
+
+
+def save_history_txt(message: Message, hotel_info: str) -> str:
+    """
+    Создает файл hotel_info.txt с данными по выбранному отелю и сохраняет его в папке соответствующего
+     запроса для вызова через history
+    :param hotel_info: Данные по отелю для сохранения
+    :param message: Полученное в чате сообщение
+    """
+    root_history = os.path.join(os.getcwd(), 'history')
+    if not os.path.isdir(root_history):
+        os.mkdir(root_history)
+    root_telegram_user = os.path.join(root_history, str(message.chat.id))
+    if not os.path.isdir(root_telegram_user):
+        os.mkdir(root_telegram_user)
+    datetime_current_query = get_value_from_save(message, 'datetime_query')
+    root_user_query = os.path.join(root_telegram_user, datetime_current_query)
+    os.mkdir(root_user_query)
+    update_save(message, 'root_user_query', re.escape(root_telegram_user))
+    file_name = os.path.join(root_user_query, 'hotel_info.txt')
+    with open(file_name, 'w', encoding='utf-8') as file:
+        file.write(hotel_info)
+    with open(file_name, 'r', encoding='utf-8') as file:
+        return file.readline()[:-1]
+
+
+def save_history_db(message: Message, hotel_name: str) -> None:
+    """ Создает запись истории последнего запроса для пользователя в таблице HistoryQuery """
+    with db:
+        history = HistoryQuery(chat_id=message.chat.id,
+                               sort_order=way_sorting[get_value_from_save(message, 'sort_order')],
+                               datetime_query=get_value_from_save(message, 'datetime_query'),
+                               hotel_name=hotel_name,
+                               root_user_query=get_value_from_save(message, 'root_user_query'))
+        history.save()
+        logger.info(f'message {message.from_user.id}: Запись сохранения для HistoryQuery создана')
+    delete_oldest_files(message)
+
+
+def save_history_photo(message: Message, photo_album: List[str]) -> None:
+    """
+    Создает файл list_pics.txt с данными фотографий по выбранному отелю и сохраняет его и фотографии
+    в папке соответствующего запроса для вызова через history
+    :param photo_album: Список url фотографий выбранного отеля
+    :param message: Полученное в чате сообщение
+    """
+    current_root = get_value_from_save(message, 'root_user_query')
+    datetime_query = get_value_from_save(message, 'datetime_query')
+
+    local_album: List = []
+    for photo in photo_album:
+        data_photo = requests.get(photo)
+        name_img = os.path.join(current_root, datetime_query, os.path.basename(photo))
+        local_album.append(name_img)
+        with open(name_img, "wb") as out:
+            out.write(data_photo.content)
+            logger.info(f'message {message.from_user.id}: Фото {os.path.basename(photo)} в папку сохранено')
+    with open(os.path.join(current_root, datetime_query, 'list_pics.txt'), 'a', encoding='utf-8') as out_list:
+        out_list.write('\n'.join(local_album))
+
+
+def get_value_for_history(message: Message, bot) -> None:
+    """
+    Создает inline клавиатуру для выбора последних сохраненных запросов в history
+    :param bot: бот
+    :param message: Полученное в чате сообщение
+    """
+    with db:
+        cur_query = HistoryQuery.select().where(HistoryQuery.chat_id == message.chat.id).limit(3).order_by(
+            HistoryQuery.id.desc())
+        if len(cur_query) == 3:
+            sort_1, datetime_1, hotel_1 = cur_query[0].sort_order, cur_query[0].datetime_query, cur_query[0].hotel_name
+            sort_2, datetime_2, hotel_2 = cur_query[1].sort_order, cur_query[1].datetime_query, cur_query[1].hotel_name
+            sort_3, datetime_3, hotel_3 = cur_query[2].sort_order, cur_query[2].datetime_query, cur_query[2].hotel_name
+            button = [(sort_1 + ' от ' + datetime_1 + ' ' + hotel_1, datetime_1 + '.his'),
+                      (sort_2 + ' от ' + datetime_2 + ' ' + hotel_2, datetime_2 + '.his'),
+                      (sort_3 + ' от ' + datetime_3 + ' ' + hotel_3, datetime_3 + '.his')]
+            create_keyboard(button, 1, 'Выберите один из трех последних запросов', message, bot)
+        elif len(cur_query) == 2:
+            sort_1, datetime_1, hotel_1 = cur_query[0].sort_order, cur_query[0].datetime_query, cur_query[0].hotel_name
+            sort_2, datetime_2, hotel_2 = cur_query[1].sort_order, cur_query[1].datetime_query, cur_query[1].hotel_name
+            button = [(sort_1 + ' от ' + datetime_1 + ' ' + hotel_1, datetime_1 + '.his'),
+                      (sort_2 + ' от ' + datetime_2 + ' ' + hotel_2, datetime_2 + '.his')]
+            create_keyboard(button, 1, 'Выберите один из двух последних запросов', message, bot)
+        elif len(cur_query) == 1:
+            sort_1, datetime_1, hotel_1 = cur_query[0].sort_order, cur_query[0].datetime_query, cur_query[0].hotel_name
+            button = [(sort_1 + ' от ' + datetime_1 + ' ' + hotel_1, datetime_1 + '.his')]
+            create_keyboard(button, 1, 'Ваш единственный запрос', message, bot)
+        else:
+            if not cur_query.exists():
+                bot.send_message(message.chat.id, 'История Ваших запросов пока еще пуста,'
+                                                  ' скорее всего Вы еще не делали запросов')
+
+
+def show_history(message: Message, user_query: str, bot) -> None:
+    """
+    Отправляет выбранный пользователем запрос из HistoryQuery
+    :param user_query: Время выбранного запроса
+    :param bot: бот
+    :param message: Полученное в чате сообщение
+    """
+    with db:
+        cur_query = HistoryQuery.get(HistoryQuery.chat_id == message.chat.id,
+                                     HistoryQuery.datetime_query == user_query)
+
+    root_current_save = os.path.join(cur_query.root_user_query, user_query)
+    hotel_info = os.path.join(root_current_save, 'hotel_info.txt')
+    hotel_pics = os.path.join(root_current_save, 'list_pics.txt')
+    with open(hotel_info, 'r', encoding='utf-8') as info:
+        bot.send_message(message.chat.id, info.read())
+    with open(hotel_pics, 'r', encoding='utf-8') as pics:
+        for pic in pics.read().split('\n'):
+            with open(pic, 'rb') as photo:
+                bot.send_photo(message.chat.id, photo)
+    logger.info(f'message {message.from_user.id}: Информация по отелю согласно запроса от {user_query}'
+                f'отправлена пользователю')
+
+
+def delete_oldest_files(message: Message) -> None:
+    """
+    Удаляет старые запросы пользователя из HistoryQuery и локального диска, оставляя 3 последних запроса пользователя
+    :param message: Полученное в чате сообщение
+    """
+    with db:
+        cur_query = HistoryQuery.select().where(HistoryQuery.chat_id == message.chat.id).order_by(
+            HistoryQuery.id.desc())
+        if len(cur_query) < 4:
+            logger.info(f'message {message.from_user.id}: Очистка таблицы HistoryQuery не требуется')
+        else:
+            root_for_delete = os.path.join(cur_query[3].root_user_query, cur_query[3].datetime_query)
+            shutil.rmtree(root_for_delete)
+            cur_query[3].delete_instance()
+            logger.info(f'message {message.from_user.id}:'
+                        f' Запрос от {cur_query[3].datetime_query} из HistoryQuery удален')

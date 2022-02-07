@@ -43,9 +43,16 @@ def help_handler(message: Message):
 def request_handler(message: Message):
     """ Обработчик команд lowprice, highprice, bestdeal """
     logger.info(f'message {message.from_user.id}{message.text}')
-    bf.add_new_save(message, service_messages[message.text])
+    bf.add_new_save_session(message, service_messages[message.text])
     msg = bot.send_message(message.chat.id, 'В каком городе ищем отели? ')
     bot.register_next_step_handler(msg, bf.search_city, bot)
+
+
+@bot.message_handler(commands=['history'])
+def history_handler(message: Message):
+    """ Обработчик команды history """
+    bf.delete_oldest_files(message)
+    bf.get_value_for_history(message, bot)
 
 
 @bot.callback_query_handler(func=DetailedTelegramCalendar.func())
@@ -77,7 +84,16 @@ def calendar(call: CallbackQuery):
         else:
             if bf.validation_dates(call.message, bot):
                 logger.info(f'message {call.message.from_user.id}: Даты введены корректно')
-                bf.search_hotels(call.message, bot)
+                if bf.get_value_from_save(call.message, 'sort_order') == 'DISTANCE_FROM_LANDMARK':
+                    if bf.get_value_from_save(call.message, 'locale') == 'ru_RU':
+                        price = 'в рублях'
+                    else:
+                        price = 'в долларах'
+                    msg = bot.send_message(call.message.chat.id,
+                                           f'Введите минимальную цену за сутки проживания в отеле, {price}')
+                    bot.register_next_step_handler(msg, bf.set_price_range, bot)
+                else:
+                    bf.search_hotels(call.message, bot)
 
             else:
                 bot.send_message(call.message.chat.id, 'Возможно Вы ошиблись при вводе данных.'
@@ -108,6 +124,8 @@ def callback_inline(call: CallbackQuery):
             msg = bot.send_message(call.message.chat.id,
                                    'Сколько фотографий данного отеля показывать? Прошу ограничится 15')
             bot.register_next_step_handler(msg, bf.number_photos, bot)
+    elif data_sep[1] == 'his':
+        bf.show_history(call.message, data_sep[0], bot)
 
 
 @bot.message_handler(content_types=['text'])
