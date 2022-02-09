@@ -8,7 +8,7 @@ from loguru import logger
 from telebot.types import InlineKeyboardMarkup, Message
 from telegram_bot_calendar import DetailedTelegramCalendar
 
-from Bot_files.botrequests.bot_classes import InlineKeyboard, Request, Session, HistoryQuery, db
+from bot_files.botrequests.bot_classes import InlineKeyboard, Request, Session, HistoryQuery, db
 
 way_sorting: Dict = {'PRICE': 'lowprice',
                      'PRICE_HIGHEST_FIRST': 'highprice',
