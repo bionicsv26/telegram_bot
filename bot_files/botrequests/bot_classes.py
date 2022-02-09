@@ -220,19 +220,22 @@ class Request:
                         if float(hotel.get('landmarks')[0].get(
                          'distance').split(sep=' ')[0].replace(',', '.')) <= user_distance])
 
-                    pagination_short_url = variants_hotels['data']['body']['searchResults']['pagination']
-                    last_hotel = pagination_short_url['nextPageStartIndex']
+                    pagination_short = variants_hotels.get('data').get('body').get('searchResults').get('pagination')
+                    if pagination_short.get('nextPageStartIndex') is not None:
+                        last_hotel = pagination_short.get('nextPageStartIndex')
+                    else:
+                        last_hotel = len(variants_hotels['data']['body']['searchResults']['results'])
                     last_hotel_distance = float(variants_hotels['data']['body']['searchResults']['results'][
                                              last_hotel - 1]['landmarks'][0]['distance'].split()[0].replace(',', '.'))
 
-                    if last_hotel_distance > user_distance or pagination_short_url[
-                            'currentPage'] >= pagination_short_url['nextPageNumber']:
+                    if last_hotel_distance > user_distance or pagination_short.get('currentPage') is None \
+                            or pagination_short.get('currentPage') >= pagination_short.get('nextPageNumber'):
                         hotels_sorted = sorted(hotels_list, key=lambda x: x[0])
                         hotels = [hotel_sort[1] for hotel_sort in hotels_sorted[:number_hotels_for_user]]
                         break
                     else:
                         print('else', last_hotel_distance, user_distance)
-                        next_page: str = pagination_short_url['nextPageNumber']
+                        next_page: str = pagination_short.get('nextPageNumber')
                         logger.info(f'Номер следующей страницы: {next_page}')
                         querystring['pageNumber'] = next_page
 

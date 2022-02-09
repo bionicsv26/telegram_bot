@@ -51,7 +51,6 @@ def request_handler(message: Message):
 @bot.message_handler(commands=['history'])
 def history_handler(message: Message):
     """ Обработчик команды history """
-    bf.delete_oldest_files(message)
     bf.get_value_for_history(message, bot)
 
 

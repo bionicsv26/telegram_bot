@@ -2,9 +2,8 @@ import os
 import re
 import shutil
 from datetime import date, datetime
-from typing import Dict, List, Tuple, Union
+from typing import Dict, List, Tuple, Union, Optional
 
-import requests
 from loguru import logger
 from telebot.types import InlineKeyboardMarkup, Message
 from telegram_bot_calendar import DetailedTelegramCalendar
@@ -188,8 +187,9 @@ def search_hotel_info(message: Message, bot):
         bot.send_message(message.chat.id, 'Информация об отеле отсутствует в базе')
     else:
         logger.info(f'message {message.from_user.id}: Информация об отеле отправлена пользователю')
-        hotel_name: str = save_history_txt(message, hotel_info)
-        save_history_db(message, hotel_name)
+        hotel_name: Optional[str] = save_history_txt(message, hotel_info)
+        if hotel_name is not None:
+            save_history_db(message, hotel_name)
         bot.send_message(message.chat.id, hotel_info)
     if get_value_from_save(message, 'hotel_pics').isdigit():
         search_hotel_photos(message, bot)
@@ -439,13 +439,15 @@ def save_history_txt(message: Message, hotel_info: str) -> str:
         os.mkdir(root_telegram_user)
     datetime_current_query = get_value_from_save(message, 'datetime_query')
     root_user_query = os.path.join(root_telegram_user, datetime_current_query)
-    os.mkdir(root_user_query)
-    update_save(message, 'root_user_query', re.escape(root_telegram_user))
+    if not os.path.isdir(root_user_query):
+        os.mkdir(root_user_query)
+        update_save(message, 'root_user_query', re.escape(root_telegram_user))
     file_name = os.path.join(root_user_query, 'hotel_info.txt')
-    with open(file_name, 'w', encoding='utf-8') as file:
-        file.write(hotel_info)
-    with open(file_name, 'r', encoding='utf-8') as file:
-        return file.readline()[:-1]
+    if not os.path.isfile(file_name):
+        with open(file_name, 'w', encoding='utf-8') as file:
+            file.write(hotel_info)
+        with open(file_name, 'r', encoding='utf-8') as file:
+            return file.readline()[:-1]
 
 
 def save_history_db(message: Message, hotel_name: str) -> None:
@@ -470,17 +472,11 @@ def save_history_photo(message: Message, photo_album: List[str]) -> None:
     """
     current_root = get_value_from_save(message, 'root_user_query')
     datetime_query = get_value_from_save(message, 'datetime_query')
-
-    local_album: List = []
-    for photo in photo_album:
-        data_photo = requests.get(photo)
-        name_img = os.path.join(current_root, datetime_query, os.path.basename(photo))
-        local_album.append(name_img)
-        with open(name_img, "wb") as out:
-            out.write(data_photo.content)
-            logger.info(f'message {message.from_user.id}: Фото {os.path.basename(photo)} в папку сохранено')
-    with open(os.path.join(current_root, datetime_query, 'list_pics.txt'), 'a', encoding='utf-8') as out_list:
-        out_list.write('\n'.join(local_album))
+    name_img = os.path.join(current_root, datetime_query, 'list_pics.txt')
+    if not os.path.isfile(name_img):
+        with open(name_img, 'a', encoding='utf-8') as out_list:
+            out_list.write('\n'.join(photo_album))
+        logger.info(f'message {message.from_user.id}: Файл list_pics.txt в {datetime_query} папку сохранен')
 
 
 def get_value_for_history(message: Message, bot) -> None:
@@ -530,14 +526,16 @@ def show_history(message: Message, user_query: str, bot) -> None:
     root_current_save = os.path.join(cur_query.root_user_query, user_query)
     hotel_info = os.path.join(root_current_save, 'hotel_info.txt')
     hotel_pics = os.path.join(root_current_save, 'list_pics.txt')
-    with open(hotel_info, 'r', encoding='utf-8') as info:
-        bot.send_message(message.chat.id, info.read())
-    with open(hotel_pics, 'r', encoding='utf-8') as pics:
-        for pic in pics.read().split('\n'):
-            with open(pic, 'rb') as photo:
-                bot.send_photo(message.chat.id, photo)
-    logger.info(f'message {message.from_user.id}: Информация по отелю согласно запроса от {user_query}'
-                f'отправлена пользователю')
+    if os.path.isfile(hotel_info):
+        with open(hotel_info, 'r', encoding='utf-8') as info:
+            bot.send_message(message.chat.id, info.read())
+            logger.info(f'message {message.from_user.id}: Информация по отелю согласно запроса от {user_query}'
+                        f'отправлена пользователю')
+    if os.path.isfile(hotel_pics):
+        with open(hotel_pics, 'r', encoding='utf-8') as pics:
+            for pic in pics.read().split('\n'):
+                bot.send_photo(message.chat.id, pic)
+        logger.info(f'message {message.from_user.id}: фото отеля отправлены пользователю')
 
 
 def delete_oldest_files(message: Message) -> None:
