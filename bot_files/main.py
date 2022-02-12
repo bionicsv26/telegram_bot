@@ -1,4 +1,5 @@
 import os
+from datetime import date
 from typing import Dict
 
 import telebot
@@ -58,7 +59,7 @@ def history_handler(message: Message):
 def calendar(call: CallbackQuery):
     """ Обработчик inline callback запросов для ввода дат"""
     locale: str = bf.get_value_from_save(call.message, 'locale')[:2]
-    result, key, step = DetailedTelegramCalendar(locale=locale).process(call.data)
+    result, key, step = DetailedTelegramCalendar(locale=locale, min_date=date.today()).process(call.data)
     if not result and key:
         if bf.get_value_from_save(call.message, 'check_in') == '':
             text_message = 'заезда в отель'
@@ -81,7 +82,7 @@ def calendar(call: CallbackQuery):
         if bf.get_value_from_save(call.message, 'check_out') == '':
             bf.check_dates(call.message, bot)
         else:
-            if bf.validation_dates(call.message, bot):
+            if bf.validation_dates(call.message):
                 logger.info(f'message {call.message.from_user.id}: Даты введены корректно')
                 if bf.get_value_from_save(call.message, 'sort_order') == 'DISTANCE_FROM_LANDMARK':
                     if bf.get_value_from_save(call.message, 'locale') == 'ru_RU':
@@ -109,20 +110,11 @@ def callback_inline(call: CallbackQuery):
     logger.info(f'call chat_id {call.from_user.id}: {call.data}')
     data_sep = call.data.split('.')
     if data_sep[1] == 'city_id':
-        bf.update_save(call.message, 'city_id', data_sep[0])
-        msg = bot.send_message(call.message.chat.id, 'Сколько вариантов отелей показывать? Прошу ограничится 25')
+        data_cur = data_sep[0].split('!')
+        bf.update_save(call.message, 'query', data_cur[0])
+        bf.update_save(call.message, 'city_id', data_cur[1])
+        msg = bot.send_message(call.message.chat.id, 'Сколько вариантов отелей показывать? Прошу ограничится 10')
         bot.register_next_step_handler(msg, bf.number_hotels, bot)
-    elif data_sep[1] == 'hotel_id':
-        bf.update_save(call.message, 'hotel_id', data_sep[0])
-        bf.check_photo(call.message, bot)
-    elif data_sep[1] == 'photo':
-        if data_sep[0] == 'No':
-            bf.update_save(call.message, 'hotel_pics', '0')
-            bf.search_hotel_info(call.message, bot)
-        else:
-            msg = bot.send_message(call.message.chat.id,
-                                   'Сколько фотографий данного отеля показывать? Прошу ограничится 15')
-            bot.register_next_step_handler(msg, bf.number_photos, bot)
     elif data_sep[1] == 'his':
         bf.show_history(call.message, data_sep[0], bot)
 

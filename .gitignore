@@ -126,3 +126,7 @@ dmypy.json
 
 # files database
 *.db
+
+# local saves
+
+history/

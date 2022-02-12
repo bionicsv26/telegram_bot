@@ -34,7 +34,6 @@ class Session(BaseModel):
     number_persons = CharField()
     check_in = DateField()
     check_out = DateField()
-    hotel_id = CharField()
     hotel_pics = CharField()
     price_start = CharField()
     price_stop = CharField()
@@ -51,8 +50,9 @@ class HistoryQuery(BaseModel):
     """Класс, реализующий таблицу HistoryQuery"""
     chat_id = CharField()
     datetime_query = DateTimeField()
+    city = CharField()
     sort_order = CharField()
-    hotel_name = CharField()
+    hotels_id = CharField()
     root_user_query = CharField()
 
     class Meta:
@@ -170,7 +170,9 @@ class Request:
         """
         try:
             variants_cities = self.get_response(self._city_url, self.this_query)
-            cities = [(re.sub(r'<.+?>', '', elem.get('caption')), elem.get('destinationId') + '.city_id')
+            cities = [(re.sub(r'<.+?>', '', elem.get('caption')),
+                       re.sub(r'<.+?>', '', elem.get('caption')).split(',')[0]
+                       + '!' + elem.get('destinationId') + '.city_id')
                       for elem in variants_cities.get('suggestions', [])[0].get('entities')
                       if elem.get('type') == 'CITY' and self.this_query["query"].lower() in elem.get('name').lower()]
         except IndexError:
@@ -188,15 +190,9 @@ class Request:
         try:
             if self.this_query['sortOrder'] != 'DISTANCE_FROM_LANDMARK':
                 variants_hotels = self.get_response(self._hotels_url, self.this_query)
-                hotels = [(f"{hotel.get('name')} {'⭐️' * int(hotel.get('starRating', 0))} "
-                           f"{hotel.get('address').get('streetAddress', '')}. "
-                           f"{str(hotel.get('ratePlan').get('price').get('current')).lower()} "
-                           f"{hotel.get('landmarks')[0].get('distance').split(sep=' ')[0]} до центра",
-                           str(hotel.get('id')) + '.hotel_id')
-                          for hotel in variants_hotels['data']['body']['searchResults']['results']]
+                hotels = [str(hotel.get('id')) for hotel in variants_hotels['data']['body']['searchResults']['results']]
             else:
                 querystring = dict(self.this_query)
-                print('DISTANCE_FROM_LANDMARK', querystring)
                 hotels_list: List = []
                 number_hotels_for_user: int = int(querystring['pageSize'])
                 querystring['pageSize'] = '25'
@@ -210,12 +206,7 @@ class Request:
                     variants_hotels = self.get_response(self._hotels_url, querystring)
 
                     hotels_list.extend([
-                        (float(hotel.get('ratePlan').get('price').get('exactCurrent')),
-                         (f"{hotel.get('name')} {'⭐️' * int(hotel.get('starRating', 0))}"
-                          f"{hotel.get('address').get('streetAddress', '')}. "
-                          f"{str(hotel.get('ratePlan').get('price').get('current')).lower()} "
-                          f"{hotel.get('landmarks')[0].get('distance').split(sep=' ')[0].replace(',', '.')} до центра",
-                          str(hotel.get('id')) + '.hotel_id'))
+                        (float(hotel.get('ratePlan').get('price').get('exactCurrent')), str(hotel.get('id')))
                         for hotel in variants_hotels['data']['body']['searchResults']['results']
                         if float(hotel.get('landmarks')[0].get(
                          'distance').split(sep=' ')[0].replace(',', '.')) <= user_distance])
@@ -234,7 +225,6 @@ class Request:
                         hotels = [hotel_sort[1] for hotel_sort in hotels_sorted[:number_hotels_for_user]]
                         break
                     else:
-                        print('else', last_hotel_distance, user_distance)
                         next_page: str = pagination_short.get('nextPageNumber')
                         logger.info(f'Номер следующей страницы: {next_page}')
                         querystring['pageNumber'] = next_page
