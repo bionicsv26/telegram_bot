@@ -1,7 +1,7 @@
 import os
 import re
 import shutil
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 from typing import Dict, List, Union
 
 from loguru import logger
@@ -92,11 +92,12 @@ def number_guests(message: Message, bot):
 def check_dates(message: Message, bot):
     """Формирует календарь для ввода дат заезда-выезда"""
     locale: str = get_value_from_save(message, 'locale')[:2]
-
-    calendar, step = DetailedTelegramCalendar(locale=locale, min_date=date.today()).build()
-    if get_value_from_save(message, 'check_in') == '':
+    day: date = get_value_from_save(message, 'check_in')
+    if day == '':
+        calendar, step = DetailedTelegramCalendar(locale=locale, min_date=date.today()).build()
         text_message = 'заезда в отель'
     else:
+        calendar, step = DetailedTelegramCalendar(locale=locale, min_date=day + timedelta(days=1)).build()
         text_message = 'выезда из отеля'
     bot.send_message(message.chat.id, 'Введите дату ' + text_message, reply_markup=calendar)
 

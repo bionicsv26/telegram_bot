@@ -1,5 +1,5 @@
 import os
-from datetime import date
+from datetime import date, timedelta
 from typing import Dict
 
 import telebot
@@ -59,7 +59,11 @@ def history_handler(message: Message):
 def calendar(call: CallbackQuery):
     """ Обработчик inline callback запросов для ввода дат"""
     locale: str = bf.get_value_from_save(call.message, 'locale')[:2]
-    result, key, step = DetailedTelegramCalendar(locale=locale, min_date=date.today()).process(call.data)
+    day: date = bf.get_value_from_save(call.message, 'check_in')
+    if day == '':
+        result, key, step = DetailedTelegramCalendar(locale=locale, min_date=date.today()).process(call.data)
+    else:
+        result, key, step = DetailedTelegramCalendar(locale=locale, min_date=day + timedelta(days=1)).process(call.data)
     if not result and key:
         if bf.get_value_from_save(call.message, 'check_in') == '':
             text_message = 'заезда в отель'
